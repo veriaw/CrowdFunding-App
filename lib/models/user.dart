@@ -23,6 +23,7 @@ class User extends HiveObject {
   String? publicKey; // 🔑 Field baru
 
   User({
+    this.id,
     required this.username,
     required this.password,
     this.gender,

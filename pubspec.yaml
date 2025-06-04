@@ -14,9 +14,17 @@ dependencies:
   google_fonts: ^6.2.1
   hive: ^2.2.3
   hive_flutter: ^1.1.0
+  http: ^1.4.0
   path_provider: ^2.1.5
   rsa_encrypt: ^2.0.0
   shared_preferences: ^2.5.3
+  flutter_map: ^8.1.1
+  flutter_polyline_points: ^2.1.0
+  geolocator: ^11.0.0
+  url_launcher: ^6.3.1
+  latlong2: ^0.9.1
+  intl: ^0.20.2
+  image_picker: ^1.1.2
   
 
 dev_dependencies:
