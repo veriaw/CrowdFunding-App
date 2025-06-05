@@ -1,10 +1,13 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:http/http.dart' as http;
+import 'package:http_parser/http_parser.dart';
+import 'package:mime/mime.dart';
 import 'package:path/path.dart';
 
 class BaseNetwork {
-  static const String baseUrl = 'https://api-funding-928661779459.us-central1.run.app';
+  static const String baseUrl =
+      'https://api-funding-928661779459.us-central1.run.app';
 
   // ✅ Get All Projects
   static Future<Map<String, dynamic>> getAllProjects() async {
@@ -43,8 +46,23 @@ class BaseNetwork {
     }
   }
 
+  static Future<Map<String, dynamic>> getAllProjectByUserId(int id) async {
+    final response = await http.post(
+      Uri.parse('$baseUrl/get-projects-by-user'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({'user_id': id}),
+    );
+    print("user project :${jsonDecode(response.body)}");
+    if (response.statusCode >= 200 && response.statusCode < 300) {
+      return jsonDecode(response.body);
+    } else {
+      throw Exception('Failed to load participated projects');
+    }
+  }
+
   // ✅ Get User Participated Projects
-  static Future<Map<String, dynamic>> getUserParticipatedProjects(int userId) async {
+  static Future<Map<String, dynamic>> getUserParticipatedProjects(
+      int userId) async {
     final response = await http.post(
       Uri.parse('$baseUrl/participated-project'),
       headers: {'Content-Type': 'application/json'},
@@ -80,7 +98,8 @@ class BaseNetwork {
   }
 
   // ✅ Get user donation to a specific project
-  static Future<Map<String, dynamic>> getUserDonation(int userId, int projectId) async {
+  static Future<Map<String, dynamic>> getUserDonation(
+      int userId, int projectId) async {
     final response = await http.post(
       Uri.parse('$baseUrl/get-my-donation'),
       headers: {'Content-Type': 'application/json'},
@@ -122,11 +141,16 @@ class BaseNetwork {
 
     var stream = http.ByteStream(imageFile.openRead());
     var length = await imageFile.length();
+
+    String mimeType = lookupMimeType(imageFile.path) ?? 'image/jpeg';
+    var mimeSplit = mimeType.split('/');
+
     var multipartFile = http.MultipartFile(
       'image',
       stream,
       length,
       filename: basename(imageFile.path),
+      contentType: MediaType(mimeSplit[0], mimeSplit[1]),
     );
 
     request.files.add(multipartFile);
@@ -145,7 +169,7 @@ class BaseNetwork {
 
   // ✅ Update Project with Image
   static Future<bool> updateProjectWithImage({
-    required File imageFile,
+    File? imageFile,
     required int userId,
     required int projectId,
     String? title,
@@ -154,6 +178,7 @@ class BaseNetwork {
     String? deadline,
     double? latitude,
     double? longitude,
+    String? status,
   }) async {
     final uri = Uri.parse('$baseUrl/update-project');
 
@@ -161,32 +186,60 @@ class BaseNetwork {
 
     request.fields['user_id'] = userId.toString();
     request.fields['project_id'] = projectId.toString();
+
     if (title != null) request.fields['title'] = title;
     if (description != null) request.fields['description'] = description;
-    if (targetAmount != null) request.fields['target_amount'] = targetAmount.toString();
+    if (targetAmount != null)
+      request.fields['target_amount'] = targetAmount.toString();
     if (deadline != null) request.fields['deadline'] = deadline;
     if (latitude != null) request.fields['latitude'] = latitude.toString();
     if (longitude != null) request.fields['longitude'] = longitude.toString();
+    if (status != null) request.fields['status'] = status;
 
-    var stream = http.ByteStream(imageFile.openRead());
-    var length = await imageFile.length();
-    var multipartFile = http.MultipartFile(
-      'image',
-      stream,
-      length,
-      filename: basename(imageFile.path),
-    );
-
-    request.files.add(multipartFile);
+    if (imageFile != null) {
+      var stream = http.ByteStream(imageFile.openRead());
+      var length = await imageFile.length();
+      final mimeType = lookupMimeType(imageFile.path);
+      print('Detected mimeType: $mimeType');
+      var multipartFile = http.MultipartFile(
+        'image',
+        stream,
+        length,
+        filename: basename(imageFile.path),
+        contentType: MediaType('image', mimeType?.split('/').last ?? 'jpeg'),
+      );
+      request.files.add(multipartFile);
+    }
 
     try {
       final response = await request.send();
       final responseBody = await response.stream.bytesToString();
       print('Update response: $responseBody');
-
       return response.statusCode >= 200 && response.statusCode < 300;
     } catch (e) {
       print('Update project error: $e');
+      return false;
+    }
+  }
+
+  static Future<bool> cancelProject({
+    required int projectId,
+    required int userId,
+  }) async {
+    final response = await http.post(
+      Uri.parse('$baseUrl/projectCanceled'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({
+        'project_id': projectId,
+        'user_id': userId,
+      }),
+    );
+
+    if (response.statusCode >= 200 && response.statusCode < 300) {
+      print('Cancel project successful: ${response.body}');
+      return true;
+    } else {
+      print('Cancel project failed: ${response.body}');
       return false;
     }
   }

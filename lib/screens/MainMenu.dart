@@ -1,5 +1,9 @@
 import 'dart:io';
-
+import 'dart:math';
+import 'package:project_tpm/screens/ProjectForm.dart';
+import 'package:project_tpm/screens/UserProject.dart';
+import 'package:project_tpm/utils/session_manager.dart';
+import 'package:shake/shake.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_map/flutter_map.dart';
@@ -15,8 +19,7 @@ import 'package:project_tpm/shared/color_palette.dart';
 import 'package:project_tpm/utils/handle_image_profile.dart';
 
 class MainMenu extends StatefulWidget {
-  final User user;
-  const MainMenu({super.key, required this.user});
+  const MainMenu({super.key});
 
   @override
   State<MainMenu> createState() => _MainMenuState();
@@ -29,11 +32,16 @@ class _MainMenuState extends State<MainMenu> implements ProjectView {
   String? _errorMessage;
   List<FundingProject> allProjectList = [];
   List<FundingProject> participatedProjects = [];
+  List<FundingProject> latestProjects = [];
   List<FundingProject> filteredProjects = [];
   LatLng? currentPosition;
   FundingProject? selectedProject;
   File? _profileImage;
   final TextEditingController _searchController = TextEditingController();
+  late ShakeDetector _shakeDetector;
+  final Random _random = Random();
+  final profileManager = UserProfileManager();
+  User? userProfileSession;
 
   @override
   void initState() {
@@ -42,13 +50,164 @@ class _MainMenuState extends State<MainMenu> implements ProjectView {
     _presenter = ProjectPresenter(this);
     showLoading();
     _getCurrentLocation();
+    getProfile();
+    _shakeDetector = ShakeDetector.autoStart(onPhoneShake: (count) {
+      final project = _getRandomProject();
+      if (project != null) {
+        _showProjectDialog(project);
+      }
+    });
+  }
+
+  void initData() {
     _presenter.fetchAllProjects();
-    _presenter.fetchUserParticipatedProjects(widget.user.id!);
+    _presenter.fetchAllLatestProjects();
+    _presenter.fetchUserParticipatedProjects(userProfileSession!.id!);
     _loadProfileImage();
   }
 
+  FundingProject? _getRandomProject() {
+    if (allProjectList.isEmpty) return null;
+    return allProjectList[_random.nextInt(allProjectList.length)];
+  }
+
+  void getProfile() async {
+    final userProfile = await profileManager.getUserProfile();
+
+    if (userProfile != null && userProfile['isLoggedIn'] == true) {
+      final user = User(
+          id: userProfile['id'],
+          username: userProfile['username'],
+          password: userProfile['password'],
+          dateOfBirth: userProfile['birthdate'],
+          gender: userProfile['gender'],
+          publicKey: userProfile['publicKey']);
+      setState(() {
+        userProfileSession = user;
+      });
+      initData();
+    } else {
+      // User belum login, arahkan ke halaman login
+      print('User belum login, harus login dulu.');
+    }
+  }
+
+  void _showProjectDialog(FundingProject project) {
+    final double progress =
+        (project.totalDonations / project.targetAmount).clamp(0, 1);
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        contentPadding: EdgeInsets.zero,
+        content: Container(
+          width: 300,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ClipRRect(
+                borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+                child: Image.network(
+                  project.imgUrl,
+                  height: 150,
+                  width: double.infinity,
+                  fit: BoxFit.cover,
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: Column(
+                  children: [
+                    InkWell(
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                              builder: (context) => DetailFundingProject(
+                                  id: project.projectId,
+                                  user: userProfileSession!)),
+                        );
+                      },
+                      borderRadius: BorderRadius.circular(8),
+                      child: Column(
+                        children: [
+                          Text(
+                            project.title,
+                            style: TextStyle(
+                              fontSize: 20,
+                              fontWeight: FontWeight.bold,
+                            ),
+                            textAlign: TextAlign.center,
+                          ),
+                          SizedBox(height: 8),
+                          Text(
+                            project.description,
+                            style: TextStyle(
+                              fontSize: 14,
+                              color: Colors.grey[700],
+                            ),
+                            textAlign: TextAlign.center,
+                          ),
+                        ],
+                      ),
+                    ),
+                    SizedBox(height: 12),
+                    LinearProgressIndicator(
+                      value: progress,
+                      minHeight: 10,
+                      backgroundColor: Colors.grey[300],
+                      color: Colors.teal,
+                    ),
+                    SizedBox(height: 8),
+                    Text(
+                      'Terkumpul: Rp ${project.totalDonations.toStringAsFixed(0)} dari Rp ${project.targetAmount.toStringAsFixed(0)}',
+                      style: TextStyle(
+                        color: Colors.green[700],
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    SizedBox(height: 4),
+                    Text(
+                      '${(progress * 100).toStringAsFixed(1)}% tercapai',
+                      style: TextStyle(
+                        color: Colors.black54,
+                        fontSize: 14,
+                      ),
+                    ),
+                    SizedBox(height: 16),
+                    ElevatedButton(
+                      onPressed: () => Navigator.of(context).pop(),
+                      child: Text('Close'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.teal,
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12)),
+                        padding:
+                            EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  @override
+  void dispose() {
+    _shakeDetector.stopListening();
+    super.dispose();
+  }
+
   Future<void> _loadProfileImage() async {
-    final image = await ProfileImageHelper.loadProfileImage(widget.user.id!);
+    final image =
+        await ProfileImageHelper.loadProfileImage(userProfileSession!.id!);
     setState(() => _profileImage = image);
   }
 
@@ -86,6 +245,20 @@ class _MainMenuState extends State<MainMenu> implements ProjectView {
       appBar: AppBar(
         title: Text("Main Menu"),
         backgroundColor: secondaryColor,
+        actions: [
+          IconButton(
+                  icon: const Icon(Icons.assignment, color: Colors.white,),
+                  tooltip: 'User Funding',
+                  onPressed: () => {
+                    Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                              builder: (context) => UserProject(user: userProfileSession!)
+                        )
+                    )
+                  },
+                ),
+        ],
       ),
       bottomNavigationBar: NavigationBar(
         onDestinationSelected: (int index) {
@@ -94,8 +267,9 @@ class _MainMenuState extends State<MainMenu> implements ProjectView {
           });
           if (index == 0) {
             _presenter.fetchAllProjects();
+            _presenter.fetchAllLatestProjects();
           } else if (index == 1) {
-            _presenter.fetchUserParticipatedProjects(widget.user.id!);
+            _presenter.fetchUserParticipatedProjects(userProfileSession!.id!);
           } else if (index == 2) {
             _getCurrentLocation();
           } else {
@@ -130,118 +304,424 @@ class _MainMenuState extends State<MainMenu> implements ProjectView {
         // index 0
         SingleChildScrollView(
           child: Column(
-          children: [
-            Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: Column(
-                children: [
-                  TextField(
-                    controller: _searchController,
-                    decoration: InputDecoration(
-                      labelText: 'Cari Project',
-                      hintText: 'Masukkan kata kunci...',
-                      border: OutlineInputBorder(),
-                      suffixIcon: IconButton(
-                        icon: Icon(Icons.search),
-                        onPressed: () {
-                          searchProject(_searchController.text);
-                        },
+            children: [
+              Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: Column(
+                  children: [
+                    TextField(
+                      controller: _searchController,
+                      decoration: InputDecoration(
+                        labelText: 'Cari Project',
+                        hintText: 'Masukkan kata kunci...',
+                        border: OutlineInputBorder(),
+                        suffixIcon: IconButton(
+                          icon: Icon(Icons.search),
+                          onPressed: () {
+                            searchProject(_searchController.text);
+                          },
+                        ),
                       ),
+                      onChanged: (value) {
+                        // Optional: lakukan pencarian langsung saat mengetik
+                        searchProject(value);
+                      },
+                      onSubmitted: (value) {
+                        searchProject(value);
+                      },
                     ),
-                    onChanged: (value) {
-                      // Optional: lakukan pencarian langsung saat mengetik
-                      searchProject(value);
-                    },
-                    onSubmitted: (value) {
-                      searchProject(value);
-                    },
-                  ),
-                  SizedBox(height: 20),
-                  filteredProjects.isEmpty
-                  ? SizedBox.shrink()
-                  : SizedBox(
-                    height: 262,
-                    child: ListView.builder(
-                      scrollDirection: Axis.horizontal,
-                      itemCount: filteredProjects.length,
-                      itemBuilder: (context, index) {
-                        final project = filteredProjects[index];
-                        final currentAmount = project.totalDonations ?? 0.0;
-                        final targetAmount = project.targetAmount ?? 1.0;
-                        final progress =
-                            (currentAmount / targetAmount).clamp(0.0, 1.0);
+                    SizedBox(height: 5),
+                    filteredProjects.isEmpty
+                        ? SizedBox.shrink()
+                        : SizedBox(
+                            height: 262,
+                            child: ListView.builder(
+                              scrollDirection: Axis.horizontal,
+                              itemCount: filteredProjects.length,
+                              itemBuilder: (context, index) {
+                                final project = filteredProjects[index];
+                                final currentAmount =
+                                    project.totalDonations ?? 0.0;
+                                final targetAmount =
+                                    project.targetAmount ?? 1.0;
+                                final progress = (currentAmount / targetAmount)
+                                    .clamp(0.0, 1.0);
 
-                        return Container(
-                          width: 220,
-                          margin: const EdgeInsets.symmetric(
-                              horizontal: 8.0, vertical: 10.0),
-                          child: InkWell(
-                            onTap: () {
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                    builder: (context) => DetailFundingProject(
-                                        id: project.projectId,
-                                        user: widget.user)),
-                              );
-                            },
-                            child: Card(
-                              elevation: 4,
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(16),
-                              ),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  // Gambar Project
-                                  ClipRRect(
-                                    borderRadius: const BorderRadius.vertical(
-                                        top: Radius.circular(16)),
-                                    child: Image.network(
-                                      project.imgUrl ?? '',
-                                      height: 120,
-                                      width: double.infinity,
-                                      fit: BoxFit.cover,
-                                      errorBuilder:
-                                          (context, error, stackTrace) =>
-                                              Container(
-                                        height: 120,
-                                        color: Colors.grey[300],
-                                        child:
-                                            Icon(Icons.broken_image, size: 40),
+                                return Container(
+                                  width: 220,
+                                  margin: const EdgeInsets.symmetric(
+                                      horizontal: 8.0, vertical: 10.0),
+                                  child: InkWell(
+                                    onTap: () {
+                                      Navigator.push(
+                                        context,
+                                        MaterialPageRoute(
+                                            builder: (context) =>
+                                                DetailFundingProject(
+                                                    id: project.projectId,
+                                                    user: userProfileSession!)),
+                                      );
+                                    },
+                                    child: Card(
+                                      elevation: 4,
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(16),
+                                      ),
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          // Gambar Project
+                                          ClipRRect(
+                                            borderRadius:
+                                                const BorderRadius.vertical(
+                                                    top: Radius.circular(16)),
+                                            child: Image.network(
+                                              project.imgUrl ?? '',
+                                              height: 120,
+                                              width: double.infinity,
+                                              fit: BoxFit.cover,
+                                              errorBuilder: (context, error,
+                                                      stackTrace) =>
+                                                  Container(
+                                                height: 120,
+                                                color: Colors.grey[300],
+                                                child: Icon(Icons.broken_image,
+                                                    size: 40),
+                                              ),
+                                            ),
+                                          ),
+                                          // Title
+                                          Padding(
+                                            padding: const EdgeInsets.all(8.0),
+                                            child: Text(
+                                              project.title ?? 'No Title',
+                                              style: const TextStyle(
+                                                  fontSize: 16,
+                                                  fontWeight: FontWeight.bold),
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                            ),
+                                          ),
+                                          // Description (short)
+                                          Padding(
+                                            padding: const EdgeInsets.symmetric(
+                                                horizontal: 8.0),
+                                            child: Text(
+                                              project.description ??
+                                                  'No description available.',
+                                              maxLines: 2,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: const TextStyle(
+                                                  fontSize: 12,
+                                                  color: Colors.grey),
+                                            ),
+                                          ),
+                                          // Progress bar
+                                          Padding(
+                                            padding: const EdgeInsets.symmetric(
+                                                horizontal: 8.0, vertical: 4),
+                                            child: ClipRRect(
+                                              borderRadius:
+                                                  BorderRadius.circular(8),
+                                              child: LinearProgressIndicator(
+                                                value: progress,
+                                                minHeight: 8,
+                                                backgroundColor:
+                                                    Colors.grey[300],
+                                                valueColor:
+                                                    AlwaysStoppedAnimation<
+                                                        Color>(Colors.green),
+                                              ),
+                                            ),
+                                          ),
+                                          // Funding info
+                                          Padding(
+                                            padding: const EdgeInsets.symmetric(
+                                                horizontal: 8.0),
+                                            child: Text(
+                                              '${(progress * 100).toStringAsFixed(1)}% funded',
+                                              style: const TextStyle(
+                                                  fontSize: 12,
+                                                  color: Colors.green),
+                                            ),
+                                          ),
+                                          Padding(
+                                            padding: const EdgeInsets.symmetric(
+                                                horizontal: 8.0, vertical: 4.0),
+                                            child: Text(
+                                              'Status : ${project.status}',
+                                              style: TextStyle(
+                                                fontSize: 12,
+                                                color: project.status
+                                                            .toLowerCase() ==
+                                                        'active'
+                                                    ? Colors.blue
+                                                    : project.status
+                                                                .toLowerCase() ==
+                                                            'canceled'
+                                                        ? Colors.orange
+                                                        : project.status
+                                                                    .toLowerCase() ==
+                                                                'finish'
+                                                            ? Colors.green
+                                                            : Colors.grey,
+                                              ),
+                                            ),
+                                          ),
+                                        ],
                                       ),
                                     ),
                                   ),
-                                  // Title
-                                  Padding(
-                                    padding: const EdgeInsets.all(8.0),
-                                    child: Text(
+                                );
+                              },
+                            ),
+                          ),
+                  ],
+                ),
+              ),
+              Padding(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16.0, vertical: 5),
+                child: ElevatedButton.icon(
+                  onPressed: () {
+                    Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                              builder: (context) => ProjectFormPage(userId: userProfileSession!.id!, isEdit: false,)
+                        )
+                    );
+                  },
+                  icon: Icon(Icons.add_circle_outline, color: Colors.white,),
+                  label: Text("Ajukan Pendanaan"),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.teal,
+                    foregroundColor: Colors.white,
+                    padding: EdgeInsets.symmetric(vertical: 14, horizontal: 20),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(30),
+                    ),
+                    elevation: 4,
+                    shadowColor: Colors.black45,
+                    textStyle:
+                        TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ),
+              Text(
+                "Latest Fundings",
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
+              SizedBox(
+                height: 262,
+                child: ListView.builder(
+                  scrollDirection: Axis.horizontal,
+                  itemCount: latestProjects.length,
+                  itemBuilder: (context, index) {
+                    final project = latestProjects[index];
+                    final currentAmount = project.totalDonations ?? 0.0;
+                    final targetAmount = project.targetAmount ?? 1.0;
+                    final progress =
+                        (currentAmount / targetAmount).clamp(0.0, 1.0);
+
+                    return Container(
+                      width: 220,
+                      margin: const EdgeInsets.symmetric(
+                          horizontal: 8.0, vertical: 10.0),
+                      child: InkWell(
+                        onTap: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                                builder: (context) => DetailFundingProject(
+                                    id: project.projectId,
+                                    user: userProfileSession!)),
+                          );
+                        },
+                        child: Card(
+                          elevation: 4,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              // Gambar Project
+                              ClipRRect(
+                                borderRadius: const BorderRadius.vertical(
+                                    top: Radius.circular(16)),
+                                child: Image.network(
+                                  project.imgUrl ?? '',
+                                  height: 120,
+                                  width: double.infinity,
+                                  fit: BoxFit.cover,
+                                  errorBuilder: (context, error, stackTrace) =>
+                                      Container(
+                                    height: 120,
+                                    color: Colors.grey[300],
+                                    child: Icon(Icons.broken_image, size: 40),
+                                  ),
+                                ),
+                              ),
+                              // Title
+                              Padding(
+                                padding: const EdgeInsets.all(8.0),
+                                child: Text(
+                                  project.title ?? 'No Title',
+                                  style: const TextStyle(
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.bold),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                              // Description (short)
+                              Padding(
+                                padding:
+                                    const EdgeInsets.symmetric(horizontal: 8.0),
+                                child: Text(
+                                  project.description ??
+                                      'No description available.',
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                      fontSize: 12, color: Colors.grey),
+                                ),
+                              ),
+                              // Progress bar
+                              Padding(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 8.0, vertical: 4),
+                                child: ClipRRect(
+                                  borderRadius: BorderRadius.circular(8),
+                                  child: LinearProgressIndicator(
+                                    value: progress,
+                                    minHeight: 8,
+                                    backgroundColor: Colors.grey[300],
+                                    valueColor: AlwaysStoppedAnimation<Color>(
+                                        Colors.green),
+                                  ),
+                                ),
+                              ),
+                              // Funding info
+                              Padding(
+                                padding:
+                                    const EdgeInsets.symmetric(horizontal: 8.0),
+                                child: Text(
+                                  '${(progress * 100).toStringAsFixed(1)}% funded',
+                                  style: const TextStyle(
+                                      fontSize: 12, color: Colors.green),
+                                ),
+                              ),
+                              Padding(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 8.0, vertical: 4.0),
+                                child: Text(
+                                  'Status : ${project.status}',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: project.status.toLowerCase() ==
+                                            'active'
+                                        ? Colors.blue
+                                        : project.status.toLowerCase() ==
+                                                'canceled'
+                                            ? Colors.orange
+                                            : project.status.toLowerCase() ==
+                                                    'finish'
+                                                ? Colors.green
+                                                : Colors.grey,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+              Text(
+                "All Fundings",
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
+              SizedBox(
+                height: 394,
+                child: ListView.builder(
+                  itemCount: allProjectList.length,
+                  itemBuilder: (context, index) {
+                    final project = allProjectList[index];
+                    final currentAmount = project.totalDonations ?? 0.0;
+                    final targetAmount = project.targetAmount ?? 1.0;
+                    final progress =
+                        (currentAmount / targetAmount).clamp(0.0, 1.0);
+
+                    return Card(
+                      margin: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      elevation: 5,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      child: InkWell(
+                        onTap: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                                builder: (context) => DetailFundingProject(
+                                    id: project.projectId,
+                                    user: userProfileSession!)),
+                          );
+                        },
+                        borderRadius: BorderRadius.circular(16),
+                        child: Padding(
+                          padding: EdgeInsets.all(12),
+                          child: Row(
+                            children: [
+                              // Gambar di kiri
+                              ClipRRect(
+                                borderRadius: BorderRadius.circular(12),
+                                child: Image.network(
+                                  project.imgUrl ?? '',
+                                  width: 120,
+                                  height: 120,
+                                  fit: BoxFit.cover,
+                                  errorBuilder: (context, error, stackTrace) =>
+                                      Container(
+                                    width: 120,
+                                    height: 120,
+                                    color: Colors.grey[300],
+                                    child: Icon(Icons.broken_image, size: 40),
+                                  ),
+                                ),
+                              ),
+                              SizedBox(width: 12),
+                              // Informasi di kanan
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
                                       project.title ?? 'No Title',
-                                      style: const TextStyle(
-                                          fontSize: 16,
-                                          fontWeight: FontWeight.bold),
-                                      maxLines: 1,
+                                      style: TextStyle(
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                      maxLines: 2,
                                       overflow: TextOverflow.ellipsis,
                                     ),
-                                  ),
-                                  // Description (short)
-                                  Padding(
-                                    padding: const EdgeInsets.symmetric(
-                                        horizontal: 8.0),
-                                    child: Text(
+                                    SizedBox(height: 6),
+                                    Text(
                                       project.description ??
                                           'No description available.',
                                       maxLines: 2,
                                       overflow: TextOverflow.ellipsis,
-                                      style: const TextStyle(
-                                          fontSize: 12, color: Colors.grey),
+                                      style: TextStyle(
+                                        fontSize: 14,
+                                        color: Colors.grey[700],
+                                      ),
                                     ),
-                                  ),
-                                  // Progress bar
-                                  Padding(
-                                    padding: const EdgeInsets.symmetric(
-                                        horizontal: 8.0, vertical: 4),
-                                    child: ClipRRect(
+                                    SizedBox(height: 8),
+                                    ClipRRect(
                                       borderRadius: BorderRadius.circular(8),
                                       child: LinearProgressIndicator(
                                         value: progress,
@@ -252,21 +732,16 @@ class _MainMenuState extends State<MainMenu> implements ProjectView {
                                                 Colors.green),
                                       ),
                                     ),
-                                  ),
-                                  // Funding info
-                                  Padding(
-                                    padding: const EdgeInsets.symmetric(
-                                        horizontal: 8.0),
-                                    child: Text(
-                                      '${(progress * 100).toStringAsFixed(1)}% funded',
-                                      style: const TextStyle(
-                                          fontSize: 12, color: Colors.green),
+                                    SizedBox(height: 4),
+                                    Text(
+                                      '${(progress * 100).toStringAsFixed(1)}% funded • \Rp.${currentAmount.toStringAsFixed(2)} raised of \Rp.${targetAmount.toStringAsFixed(2)}',
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        color: Colors.grey[600],
+                                      ),
                                     ),
-                                  ),
-                                  Padding(
-                                    padding: const EdgeInsets.symmetric(
-                                        horizontal: 8.0, vertical: 4.0),
-                                    child: Text(
+                                    SizedBox(height: 4),
+                                    Text(
                                       'Status : ${project.status}',
                                       style: TextStyle(
                                         fontSize: 12,
@@ -283,277 +758,20 @@ class _MainMenuState extends State<MainMenu> implements ProjectView {
                                                     : Colors.grey,
                                       ),
                                     ),
-                                  ),
-                                ],
+                                    SizedBox(height: 4),
+                                  ],
+                                ),
                               ),
-                            ),
+                            ],
                           ),
-                        );
-                      },
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            Text(
-              "Latest Fundings",
-              style: TextStyle(fontWeight: FontWeight.bold),
-            ),
-            SizedBox(
-              height: 262,
-              child: ListView.builder(
-                scrollDirection: Axis.horizontal,
-                itemCount: allProjectList.length,
-                itemBuilder: (context, index) {
-                  final project = allProjectList[index];
-                  final currentAmount = project.totalDonations ?? 0.0;
-                  final targetAmount = project.targetAmount ?? 1.0;
-                  final progress =
-                      (currentAmount / targetAmount).clamp(0.0, 1.0);
-
-                  return Container(
-                    width: 220,
-                    margin: const EdgeInsets.symmetric(
-                        horizontal: 8.0, vertical: 10.0),
-                    child: InkWell(
-                      onTap: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                              builder: (context) => DetailFundingProject(
-                                  id: project.projectId, user: widget.user)),
-                        );
-                      },
-                      child: Card(
-                        elevation: 4,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(16),
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            // Gambar Project
-                            ClipRRect(
-                              borderRadius: const BorderRadius.vertical(
-                                  top: Radius.circular(16)),
-                              child: Image.network(
-                                project.imgUrl ?? '',
-                                height: 120,
-                                width: double.infinity,
-                                fit: BoxFit.cover,
-                                errorBuilder: (context, error, stackTrace) =>
-                                    Container(
-                                  height: 120,
-                                  color: Colors.grey[300],
-                                  child: Icon(Icons.broken_image, size: 40),
-                                ),
-                              ),
-                            ),
-                            // Title
-                            Padding(
-                              padding: const EdgeInsets.all(8.0),
-                              child: Text(
-                                project.title ?? 'No Title',
-                                style: const TextStyle(
-                                    fontSize: 16, fontWeight: FontWeight.bold),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
-                            // Description (short)
-                            Padding(
-                              padding:
-                                  const EdgeInsets.symmetric(horizontal: 8.0),
-                              child: Text(
-                                project.description ??
-                                    'No description available.',
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                    fontSize: 12, color: Colors.grey),
-                              ),
-                            ),
-                            // Progress bar
-                            Padding(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 8.0, vertical: 4),
-                              child: ClipRRect(
-                                borderRadius: BorderRadius.circular(8),
-                                child: LinearProgressIndicator(
-                                  value: progress,
-                                  minHeight: 8,
-                                  backgroundColor: Colors.grey[300],
-                                  valueColor: AlwaysStoppedAnimation<Color>(
-                                      Colors.green),
-                                ),
-                              ),
-                            ),
-                            // Funding info
-                            Padding(
-                              padding:
-                                  const EdgeInsets.symmetric(horizontal: 8.0),
-                              child: Text(
-                                '${(progress * 100).toStringAsFixed(1)}% funded',
-                                style: const TextStyle(
-                                    fontSize: 12, color: Colors.green),
-                              ),
-                            ),
-                            Padding(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 8.0, vertical: 4.0),
-                              child: Text(
-                                'Status : ${project.status}',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color:
-                                      project.status.toLowerCase() == 'active'
-                                          ? Colors.blue
-                                          : project.status.toLowerCase() ==
-                                                  'canceled'
-                                              ? Colors.orange
-                                              : project.status.toLowerCase() ==
-                                                      'finish'
-                                                  ? Colors.green
-                                                  : Colors.grey,
-                                ),
-                              ),
-                            ),
-                          ],
                         ),
                       ),
-                    ),
-                  );
-                },
+                    );
+                  },
+                ),
               ),
-            ),
-            Text(
-              "All Fundings",
-              style: TextStyle(fontWeight: FontWeight.bold),
-            ),
-            SizedBox(
-              height: 394,
-              child: ListView.builder(
-                itemCount: allProjectList.length,
-                itemBuilder: (context, index) {
-                  final project = allProjectList[index];
-                  final currentAmount = project.totalDonations ?? 0.0;
-                  final targetAmount = project.targetAmount ?? 1.0;
-                  final progress =
-                      (currentAmount / targetAmount).clamp(0.0, 1.0);
-
-                  return Card(
-                    margin: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                    elevation: 5,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(16),
-                    ),
-                    child: InkWell(
-                      onTap: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                              builder: (context) => DetailFundingProject(
-                                  id: project.projectId, user: widget.user)),
-                        );
-                      },
-                      borderRadius: BorderRadius.circular(16),
-                      child: Padding(
-                        padding: EdgeInsets.all(12),
-                        child: Row(
-                          children: [
-                            // Gambar di kiri
-                            ClipRRect(
-                              borderRadius: BorderRadius.circular(12),
-                              child: Image.network(
-                                project.imgUrl ?? '',
-                                width: 120,
-                                height: 120,
-                                fit: BoxFit.cover,
-                                errorBuilder: (context, error, stackTrace) =>
-                                    Container(
-                                  width: 120,
-                                  height: 120,
-                                  color: Colors.grey[300],
-                                  child: Icon(Icons.broken_image, size: 40),
-                                ),
-                              ),
-                            ),
-                            SizedBox(width: 12),
-                            // Informasi di kanan
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    project.title ?? 'No Title',
-                                    style: TextStyle(
-                                      fontSize: 16,
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                    maxLines: 2,
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                  SizedBox(height: 6),
-                                  Text(
-                                    project.description ??
-                                        'No description available.',
-                                    maxLines: 2,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: TextStyle(
-                                      fontSize: 14,
-                                      color: Colors.grey[700],
-                                    ),
-                                  ),
-                                  SizedBox(height: 8),
-                                  ClipRRect(
-                                    borderRadius: BorderRadius.circular(8),
-                                    child: LinearProgressIndicator(
-                                      value: progress,
-                                      minHeight: 8,
-                                      backgroundColor: Colors.grey[300],
-                                      valueColor: AlwaysStoppedAnimation<Color>(
-                                          Colors.green),
-                                    ),
-                                  ),
-                                  SizedBox(height: 4),
-                                  Text(
-                                    '${(progress * 100).toStringAsFixed(1)}% funded • \Rp.${currentAmount.toStringAsFixed(2)} raised of \Rp.${targetAmount.toStringAsFixed(2)}',
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      color: Colors.grey[600],
-                                    ),
-                                  ),
-                                  SizedBox(height: 4),
-                                  Text(
-                                    'Status : ${project.status}',
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      color: project.status.toLowerCase() ==
-                                              'active'
-                                          ? Colors.blue
-                                          : project.status.toLowerCase() ==
-                                                  'canceled'
-                                              ? Colors.orange
-                                              : project.status.toLowerCase() ==
-                                                      'finish'
-                                                  ? Colors.green
-                                                  : Colors.grey,
-                                    ),
-                                  ),
-                                  SizedBox(height: 4),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  );
-                },
-              ),
-            ),
-          ],
-        ),
+            ],
+          ),
         ),
 
         // index 1
@@ -582,7 +800,8 @@ class _MainMenuState extends State<MainMenu> implements ProjectView {
                           context,
                           MaterialPageRoute(
                               builder: (context) => DetailFundingProject(
-                                  id: project.projectId, user: widget.user)),
+                                  id: project.projectId,
+                                  user: userProfileSession!)),
                         );
                       },
                       borderRadius: BorderRadius.circular(16),
@@ -747,7 +966,13 @@ class _MainMenuState extends State<MainMenu> implements ProjectView {
                 child: InkWell(
                   borderRadius: BorderRadius.circular(16),
                   onTap: () {
-                    print("Cetak Kartu Map");
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                          builder: (context) => DetailFundingProject(
+                              id: selectedProject!.projectId,
+                              user: userProfileSession!)),
+                    );
                   },
                   child: Card(
                     elevation: 8,
@@ -833,135 +1058,152 @@ class _MainMenuState extends State<MainMenu> implements ProjectView {
             Padding(
               padding: EdgeInsets.all(10),
               child: SizedBox(
-                  width: 600,
-                  height: 500,
-                  child: Card(
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    elevation: 8,
-                    margin: EdgeInsets.all(16),
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(
-                          vertical: 24, horizontal: 24),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Row(
-                            children: [
-                              CircleAvatar(
-                                radius: 42,
-                                backgroundColor: Colors.grey[300],
-                                backgroundImage: _profileImage != null
-                                    ? FileImage(_profileImage!)
-                                    : null,
-                                child: _profileImage == null
-                                    ? Icon(
-                                        Icons.person,
-                                        size: 48,
-                                        color: Colors.grey[700],
-                                      )
-                                    : null,
-                              ),
-                              SizedBox(width: 24),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      widget.user.username,
-                                      style: TextStyle(
-                                        fontSize: 24,
-                                        fontWeight: FontWeight.bold,
-                                        color: Colors.black87,
-                                      ),
+                width: 600,
+                height: 500,
+                child: Card(
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  elevation: 8,
+                  margin: EdgeInsets.all(16),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                        vertical: 24, horizontal: 24),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Row(
+                          children: [
+                            CircleAvatar(
+                              radius: 42,
+                              backgroundColor: Colors.grey[300],
+                              backgroundImage: _profileImage != null
+                                  ? FileImage(_profileImage!)
+                                  : null,
+                              child: _profileImage == null
+                                  ? Icon(
+                                      Icons.person,
+                                      size: 48,
+                                      color: Colors.grey[700],
+                                    )
+                                  : null,
+                            ),
+                            SizedBox(width: 24),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  // Periksa apakah userProfileSession tidak null
+                                  Text(
+                                    userProfileSession?.username ?? 'Guest',
+                                    style: TextStyle(
+                                      fontSize: 24,
+                                      fontWeight: FontWeight.bold,
+                                      color: Colors.black87,
                                     ),
-                                    SizedBox(height: 16),
-                                    _buildLabelValue('Gender',
-                                        widget.user.gender ?? 'Not specified'),
-                                    SizedBox(height: 12),
-                                    _buildLabelValue(
-                                      'Date of Birth',
-                                      widget.user.dateOfBirth != null
-                                          ? '${widget.user.dateOfBirth!.toLocal().toString().split(' ')[0]}'
-                                          : 'Not specified',
-                                    ),
-                                  ],
-                                ),
+                                  ),
+                                  SizedBox(height: 16),
+                                  _buildLabelValue(
+                                      'Gender',
+                                      userProfileSession?.gender ??
+                                          'Not specified'),
+                                  SizedBox(height: 12),
+                                  _buildLabelValue(
+                                    'Date of Birth',
+                                    userProfileSession?.dateOfBirth != null
+                                        ? '${userProfileSession!.dateOfBirth!.toLocal().toString().split(' ')[0]}'
+                                        : 'Not specified',
+                                  ),
+                                ],
                               ),
-                            ],
-                          ),
-                          SizedBox(height: 32),
-                          Divider(thickness: 1.5),
-                          SizedBox(height: 20),
-                          SizedBox(
-                            width: double.infinity,
-                            child: ElevatedButton.icon(
-                              onPressed: () {
+                            ),
+                          ],
+                        ),
+                        SizedBox(height: 32),
+                        Divider(thickness: 1.5),
+                        SizedBox(height: 20),
+                        SizedBox(
+                          width: double.infinity,
+                          child: ElevatedButton.icon(
+                            onPressed: () {
+                              if (userProfileSession != null) {
                                 Navigator.push(
                                   context,
                                   MaterialPageRoute(
                                     builder: (context) => EditProfilePage(
-                                      user: widget.user,
+                                      user: userProfileSession!,
                                     ),
                                   ),
                                 );
-                              },
-                              icon: Icon(Icons.edit, size: 20),
-                              label: Text('Edit Profile'),
-                              style: ElevatedButton.styleFrom(
-                                padding: EdgeInsets.symmetric(vertical: 14),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
-                                backgroundColor: Colors.blue,
-                                foregroundColor: primaryColor,
-                                textStyle: TextStyle(
-                                    fontSize: 18, fontWeight: FontWeight.bold),
-                                elevation: 5,
-                              ),
-                            ),
-                          ),
-                          SizedBox(height: 10),
-                          SizedBox(
-                            width: double.infinity,
-                            child: ElevatedButton.icon(
-                              onPressed: () {
+                              } else {
+                                // Tindakan jika userProfileSession null
+                                print('User  belum login, harus login dulu.');
                                 Navigator.pushReplacement(
                                   context,
                                   MaterialPageRoute(
                                     builder: (context) => LoginPage(),
                                   ),
                                 );
-                              },
-                              icon: Icon(Icons.logout, size: 20),
-                              label: Text('Logout'),
-                              style: ElevatedButton.styleFrom(
-                                padding: EdgeInsets.symmetric(vertical: 14),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
-                                backgroundColor: Colors.redAccent,
-                                foregroundColor: primaryColor,
-                                textStyle: TextStyle(
-                                    fontSize: 18, fontWeight: FontWeight.bold),
-                                elevation: 5,
+                              }
+                            },
+                            icon: Icon(Icons.edit, size: 20),
+                            label: Text('Edit Profile'),
+                            style: ElevatedButton.styleFrom(
+                              padding: EdgeInsets.symmetric(vertical: 14),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
                               ),
+                              backgroundColor: Colors.blue,
+                              foregroundColor: primaryColor,
+                              textStyle: TextStyle(
+                                  fontSize: 18, fontWeight: FontWeight.bold),
+                              elevation: 5,
                             ),
                           ),
-                          SizedBox(height: 10),
-                          Text(
-                            "Pesan & Kesan TPM",
-                            textAlign: TextAlign.justify,
-                            style: TextStyle(fontWeight: FontWeight.bold),
+                        ),
+                        SizedBox(height: 10),
+                        SizedBox(
+                          width: double.infinity,
+                          child: ElevatedButton.icon(
+                            onPressed: () async {
+                              await profileManager.clearUserProfile();
+                              Navigator.pushReplacement(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (context) => LoginPage(),
+                                ),
+                              );
+                            },
+                            icon: Icon(Icons.logout, size: 20),
+                            label: Text('Logout'),
+                            style: ElevatedButton.styleFrom(
+                              padding: EdgeInsets.symmetric(vertical: 14),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              backgroundColor: Colors.redAccent,
+                              foregroundColor: primaryColor,
+                              textStyle: TextStyle(
+                                  fontSize: 18, fontWeight: FontWeight.bold),
+                              elevation: 5,
+                            ),
                           ),
-                          Text(
-                              "Deadline datang kayak hantu, errornya kayak monster ga pernah abis. Pokoknya, TPM ngajarin satu hal: siap-siap ora turu!",
-                              textAlign: TextAlign.justify)
-                        ],
-                      ),
+                        ),
+                        SizedBox(height: 10),
+                        Text(
+                          "Pesan & Kesan TPM",
+                          textAlign: TextAlign.justify,
+                          style: TextStyle(fontWeight: FontWeight.bold),
+                        ),
+                        Text(
+                          "Deadline datang kayak hantu, errornya kayak monster ga pernah abis. Pokoknya, TPM ngajarin satu hal: siap-siap ora turu!",
+                          textAlign: TextAlign.justify,
+                        ),
+                      ],
                     ),
-                  )),
+                  ),
+                ),
+              ),
             )
           ],
         )
@@ -1057,6 +1299,18 @@ class _MainMenuState extends State<MainMenu> implements ProjectView {
 
   @override
   void showAllLatestProjects(List<FundingProject> projects) {
-    // TODO: implement showAllLatestProjects
+    setState(() {
+      latestProjects = projects;
+    });
+  }
+  
+  @override
+  void onCancelProjectResult(bool success) {
+    // TODO: implement onCancelProjectResult
+  }
+  
+  @override
+  void showAllProjectByUserId(List<FundingProject> projects) {
+    // TODO: implement showAllProjectByUserId
   }
 }

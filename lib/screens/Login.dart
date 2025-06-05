@@ -4,6 +4,7 @@ import 'package:project_tpm/screens/register.dart';
 import 'package:project_tpm/services/user_service.dart';
 import 'package:project_tpm/shared/color_palette.dart';
 import 'package:project_tpm/models/user.dart';
+import 'package:project_tpm/utils/session_manager.dart';
 
 class LoginPage extends StatefulWidget {
   LoginPage({super.key});
@@ -16,8 +17,27 @@ bool isLoginSuccess = true;
 
 class _LoginPageState extends State<LoginPage> {
   final userService = UserService();
+  final profileManager = UserProfileManager();
   String username = "";
   String password = "";
+
+  @override
+  void initState() {
+    // TODO: implement initState
+    super.initState();
+    _checkLoginStatus();
+  }
+
+  void _checkLoginStatus() async {
+  final profile = await profileManager.getUserProfile();
+  if (profile != null && profile['isLoggedIn'] == true) {
+    // Jika sudah login, langsung pindah ke MainMenu
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(builder: (context) => MainMenu()),
+    );
+  }
+}
 
   @override
   Widget build(BuildContext context) {
@@ -211,6 +231,15 @@ class _LoginPageState extends State<LoginPage> {
               text = "Login success!";
               isLoginSuccess = true;
             });
+            await profileManager.saveUserProfile(
+              id: user!.id!,
+              username: user.username,
+              password: user.password,
+              birthdate: user.dateOfBirth,
+              gender: user.gender,
+              publicKey: user.publicKey,
+              isLoggedIn: true, // user sudah login
+            );
           } else {
             setState(() {
               text = "Username atau Password Salah!";
@@ -223,7 +252,7 @@ class _LoginPageState extends State<LoginPage> {
             Navigator.pushReplacement(
               context,
               MaterialPageRoute(
-                builder: (context) => MainMenu(user: user),
+                builder: (context) => MainMenu(),
               ),
             );
           }
@@ -244,17 +273,20 @@ class WindFlowPainter extends CustomPainter {
 
     Path path1 = Path();
     path1.moveTo(0, size.height * 0.2);
-    path1.cubicTo(size.width * 0.2, size.height * 0.1, size.width * 0.8, size.height * 0.3, size.width, size.height * 0.2);
+    path1.cubicTo(size.width * 0.2, size.height * 0.1, size.width * 0.8,
+        size.height * 0.3, size.width, size.height * 0.2);
     canvas.drawPath(path1, paint);
 
     Path path2 = Path();
     path2.moveTo(0, size.height * 0.5);
-    path2.cubicTo(size.width * 0.3, size.height * 0.4, size.width * 0.7, size.height * 0.6, size.width, size.height * 0.5);
+    path2.cubicTo(size.width * 0.3, size.height * 0.4, size.width * 0.7,
+        size.height * 0.6, size.width, size.height * 0.5);
     canvas.drawPath(path2, paint..color = secondaryColor.withOpacity(0.18));
 
     Path path3 = Path();
     path3.moveTo(0, size.height * 0.8);
-    path3.cubicTo(size.width * 0.1, size.height * 0.7, size.width * 0.9, size.height * 0.9, size.width, size.height * 0.8);
+    path3.cubicTo(size.width * 0.1, size.height * 0.7, size.width * 0.9,
+        size.height * 0.9, size.width, size.height * 0.8);
     canvas.drawPath(path3, paint..color = accentColor.withOpacity(0.15));
   }
 

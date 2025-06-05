@@ -8,11 +8,13 @@ abstract class ProjectView {
   void showAllProjects(List<FundingProject> projects);
   void showAllLatestProjects(List<FundingProject> projects);
   void showParticipatedProjects(List<FundingProject> projects);
+  void showAllProjectByUserId(List<FundingProject> projects);
   void projectById(FundingProject projects);
   void onDonateResult(bool success);
   void onCreateProjectResult(bool success);
   void onUpdateProjectResult(bool success);
   void showUserDonation(Map<String, dynamic> donationData);
+  void onCancelProjectResult(bool success);
   void showError(String message);
 }
 
@@ -43,11 +45,28 @@ class ProjectPresenter {
     try {
       final response = await BaseNetwork.getLatestProject();
       print("response latest project in presenter : $response");
-      final List<FundingProject> projects = (response['project'] as List)
+      final List<FundingProject> projects = (response['projects'] as List)
           .map((json) => FundingProject.fromJson(json))
           .toList();
       print("all latest project in presenter : $projects");
       view.showAllLatestProjects(projects);
+    } catch (e) {
+      view.showError(e.toString());
+    } finally {
+      view.hideLoading();
+    }
+  }
+
+  Future<void> fetchAllProjectByUserId(int id) async {
+    view.showLoading();
+    try {
+      final response = await BaseNetwork.getAllProjectByUserId(id);
+      print("response user project in presenter : $response");
+      final List<FundingProject> projects = (response['projects'] as List)
+          .map((json) => FundingProject.fromJson(json))
+          .toList();
+      print("all user project in presenter : $projects");
+      view.showAllProjectByUserId(projects);
     } catch (e) {
       view.showError(e.toString());
     } finally {
@@ -142,7 +161,7 @@ class ProjectPresenter {
   }
 
   Future<void> updateProject({
-    required File imageFile,
+    File? imageFile,
     required int userId,
     required int projectId,
     String? title,
@@ -151,6 +170,7 @@ class ProjectPresenter {
     String? deadline,
     double? latitude,
     double? longitude,
+    String? status
   }) async {
     view.showLoading();
     try {
@@ -164,8 +184,27 @@ class ProjectPresenter {
         deadline: deadline,
         latitude: latitude,
         longitude: longitude,
+        status: status
       );
       view.onUpdateProjectResult(result);
+    } catch (e) {
+      view.showError(e.toString());
+    } finally {
+      view.hideLoading();
+    }
+  }
+
+  Future<void> cancelProject({
+    required int userId,
+    required int projectId,
+  }) async {
+    view.showLoading();
+    try {
+      final result = await BaseNetwork.cancelProject(
+        userId: userId,
+        projectId: projectId,
+      );
+      view.onCancelProjectResult(result);
     } catch (e) {
       view.showError(e.toString());
     } finally {

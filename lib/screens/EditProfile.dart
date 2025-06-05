@@ -5,7 +5,8 @@ import 'package:project_tpm/models/user.dart';
 import 'package:project_tpm/screens/MainMenu.dart';
 import 'package:project_tpm/services/user_service.dart';
 import 'package:project_tpm/shared/color_palette.dart';
-import 'package:project_tpm/utils/handle_image_profile.dart'; // Ganti dengan path sesuai proyekmu
+import 'package:project_tpm/utils/handle_image_profile.dart';
+import 'package:project_tpm/utils/session_manager.dart'; // Ganti dengan path sesuai proyekmu
 
 class EditProfilePage extends StatefulWidget {
   final User user;
@@ -22,6 +23,7 @@ class _EditProfilePageState extends State<EditProfilePage> {
   String _gender = 'Laki-laki';
   DateTime? _birthDate;
   final userService = UserService();
+  final profileManager = UserProfileManager();
 
   @override
   void initState() {
@@ -78,13 +80,22 @@ class _EditProfilePageState extends State<EditProfilePage> {
 
     final userUpdated = await userService.getUserById(widget.user.id!);
 
-    Navigator.pushReplacement(
+    await profileManager.saveUserProfile(
+      id: widget.user.id!,
+      username: username,
+      password: widget.user.password,
+      birthdate: _birthDate,
+      gender: _gender,
+      publicKey: widget.user.publicKey,
+      isLoggedIn: true, // user sudah login
+    );
+
+    Navigator.pushAndRemoveUntil(
       context,
       MaterialPageRoute(
-        builder: (context) => MainMenu(
-          user: userUpdated!,
-        ),
+        builder: (context) => MainMenu(),
       ),
+      (route) => false,
     );
   }
 

@@ -1,11 +1,15 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:intl/intl.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:project_tpm/models/ProjectModel.dart';
 import 'package:project_tpm/models/user.dart';
 import 'package:project_tpm/presenters/project_presenter.dart';
+import 'package:project_tpm/screens/MainMenu.dart';
+import 'package:project_tpm/screens/ProjectForm.dart';
 import 'package:project_tpm/services/route_service.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -36,12 +40,61 @@ class _DetailFundingProjectState extends State<DetailFundingProject>
     'USD': 0.000065, // contoh: 1 IDR = 0.000065 USD
     'EUR': 0.000060,
   };
+  final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
+      FlutterLocalNotificationsPlugin();
 
   @override
   void initState() {
     super.initState();
     _presenter = ProjectPresenter(this);
     _presenter.getProjectById(widget.id);
+    _initializeNotification();
+    _requestNotificationPermission();
+  }
+
+  Future<void> _requestNotificationPermission() async {
+    if (await Permission.notification.isDenied) {
+      await Permission.notification.request();
+    }
+  }
+
+  void _initializeNotification() async {
+    const AndroidInitializationSettings initializationSettingsAndroid =
+        AndroidInitializationSettings('@mipmap/ic_launcher');
+
+    const InitializationSettings initializationSettings =
+        InitializationSettings(
+      android: initializationSettingsAndroid,
+    );
+
+    await flutterLocalNotificationsPlugin.initialize(initializationSettings);
+  }
+
+  Future<void> _showDonationSuccessNotification() async {
+    final String amountText = _amountController.text.trim();
+    final formattedAmount = NumberFormat.currency(
+      locale: 'id_ID',
+      symbol: 'Rp ',
+    ).format(double.tryParse(amountText) ?? 0);
+    final AndroidNotificationDetails androidDetails =
+        AndroidNotificationDetails(
+      'donation_channel',
+      'Donasi',
+      channelDescription: 'Donasi Berhasil Dilakukan Sebanyak $formattedAmount',
+      importance: Importance.max,
+      priority: Priority.high,
+      ticker: 'ticker',
+    );
+
+    final NotificationDetails platformDetails =
+        NotificationDetails(android: androidDetails);
+
+    await flutterLocalNotificationsPlugin.show(
+      0,
+      'Donasi Berhasil 🎉',
+      'Terima kasih atas donasi sebesar $formattedAmount!',
+      platformDetails,
+    );
   }
 
   String formatCurrency(double amount) {
@@ -84,7 +137,9 @@ class _DetailFundingProjectState extends State<DetailFundingProject>
         routePlace = route;
       });
     } catch (e) {
-      setState(() => _errorMessage = "Gagal mendapatkan lokasi/rute: $e");
+      if (mounted) {
+        setState(() => _errorMessage = "Gagal mendapatkan lokasi/rute: $e");
+      }
     }
   }
 
@@ -158,19 +213,47 @@ class _DetailFundingProjectState extends State<DetailFundingProject>
     }
 
     if (detailProject == null) {
-      return Scaffold(
-        appBar:
-            AppBar(title: Text("Project Detail"), backgroundColor: Colors.teal),
-        body: Center(child: CircularProgressIndicator()),
-      );
-    }
+    return Scaffold(
+      appBar: AppBar(
+        title: Text("Project Detail"),
+        backgroundColor: Colors.teal,
+      ),
+      body: Center(child: CircularProgressIndicator()),
+    );
+  }
 
     final percentFunded =
         detailProject!.totalDonations / detailProject!.targetAmount;
 
     return Scaffold(
       appBar:
-          AppBar(title: Text("Project Detail"), backgroundColor: Colors.teal),
+          AppBar(
+            title: Text("Project Detail"), 
+            backgroundColor: Colors.teal,
+            actions: detailProject!.userId == widget.user.id
+            ? [
+                IconButton(
+                  icon: const Icon(Icons.edit, color: Colors.white,),
+                  tooltip: 'Edit Project',
+                  onPressed: () => {
+                    Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                              builder: (context) => ProjectFormPage(userId: widget.user.id!, isEdit: true, project: detailProject,)
+                        )
+                    )
+                  },
+                ),
+                IconButton(
+                  icon: const Icon(Icons.cancel, color: Colors.white,),
+                  tooltip: 'Batalkan Project',
+                  onPressed: () => {
+                    _presenter.cancelProject(userId: widget.user.id!, projectId: detailProject!.projectId)
+                  }
+                ),
+              ]
+            : [],
+            ),
       body: Column(
         children: [
           Image.network(
@@ -181,11 +264,11 @@ class _DetailFundingProjectState extends State<DetailFundingProject>
           ),
           Expanded(
             child: Transform.translate(
-              offset: Offset(0, -20),
+              offset: Offset(0, 0),
               child: Container(
                 decoration: BoxDecoration(
                   color: Colors.white,
-                  borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+                  // borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
                   boxShadow: [BoxShadow(color: Colors.black26, blurRadius: 8)],
                 ),
                 child: DefaultTabController(
@@ -434,6 +517,7 @@ class _DetailFundingProjectState extends State<DetailFundingProject>
       _isDonating = false;
     });
     _presenter.getProjectById(widget.id);
+    _showDonationSuccessNotification();
   }
 
   @override
@@ -446,4 +530,27 @@ class _DetailFundingProjectState extends State<DetailFundingProject>
   void showParticipatedProjects(List<FundingProject> projects) {}
   @override
   void showUserDonation(Map<String, dynamic> donationData) {}
+  
+  @override
+  void onCancelProjectResult(bool success) {
+    if(success==true){
+      ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("Berhasil Membatalkan Pendanaan!")));
+      Navigator.pushAndRemoveUntil(
+      context,
+      MaterialPageRoute(
+        builder: (context) => MainMenu(),
+      ),
+      (route) => false,
+    );
+    }else{
+      ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("Gagal Membatalkan Pendanaan!")));
+    }
+  }
+  
+  @override
+  void showAllProjectByUserId(List<FundingProject> projects) {
+    // TODO: implement showAllProjectByUserId
+  }
 }
