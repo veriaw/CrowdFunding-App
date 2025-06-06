@@ -66,10 +66,7 @@ class _MainMenuState extends State<MainMenu> implements ProjectView {
     _loadProfileImage();
   }
 
-  FundingProject? _getRandomProject() {
-    if (allProjectList.isEmpty) return null;
-    return allProjectList[_random.nextInt(allProjectList.length)];
-  }
+  
 
   void getProfile() async {
     final userProfile = await profileManager.getUserProfile();
@@ -90,6 +87,11 @@ class _MainMenuState extends State<MainMenu> implements ProjectView {
       // User belum login, arahkan ke halaman login
       print('User belum login, harus login dulu.');
     }
+  }
+  
+  FundingProject? _getRandomProject() {
+    if (allProjectList.isEmpty) return null;
+    return allProjectList[_random.nextInt(allProjectList.length)];
   }
 
   void _showProjectDialog(FundingProject project) {
@@ -247,17 +249,19 @@ class _MainMenuState extends State<MainMenu> implements ProjectView {
         backgroundColor: secondaryColor,
         actions: [
           IconButton(
-                  icon: const Icon(Icons.assignment, color: Colors.white,),
-                  tooltip: 'User Funding',
-                  onPressed: () => {
-                    Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                              builder: (context) => UserProject(user: userProfileSession!)
-                        )
-                    )
-                  },
-                ),
+            icon: const Icon(
+              Icons.assignment,
+              color: Colors.white,
+            ),
+            tooltip: 'User Funding',
+            onPressed: () => {
+              Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                      builder: (context) =>
+                          UserProject(user: userProfileSession!)))
+            },
+          ),
         ],
       ),
       bottomNavigationBar: NavigationBar(
@@ -305,6 +309,17 @@ class _MainMenuState extends State<MainMenu> implements ProjectView {
         SingleChildScrollView(
           child: Column(
             children: [
+              Padding(padding: EdgeInsets.all(8),
+              child: ClipRRect(
+                borderRadius:
+                    const BorderRadius.all(Radius.circular(16)),
+                child: Image.asset(
+                  'assets/shake.png',
+                  fit: BoxFit.cover,
+                  width: double.infinity,
+                  height: 150,
+                ),
+              ),),
               Padding(
                 padding: const EdgeInsets.all(16.0),
                 child: Column(
@@ -486,13 +501,17 @@ class _MainMenuState extends State<MainMenu> implements ProjectView {
                 child: ElevatedButton.icon(
                   onPressed: () {
                     Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                              builder: (context) => ProjectFormPage(userId: userProfileSession!.id!, isEdit: false,)
-                        )
-                    );
+                        context,
+                        MaterialPageRoute(
+                            builder: (context) => ProjectFormPage(
+                                  userId: userProfileSession!.id!,
+                                  isEdit: false,
+                                )));
                   },
-                  icon: Icon(Icons.add_circle_outline, color: Colors.white,),
+                  icon: Icon(
+                    Icons.add_circle_outline,
+                    color: Colors.white,
+                  ),
                   label: Text("Ajukan Pendanaan"),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Colors.teal,
@@ -1303,12 +1322,12 @@ class _MainMenuState extends State<MainMenu> implements ProjectView {
       latestProjects = projects;
     });
   }
-  
+
   @override
   void onCancelProjectResult(bool success) {
     // TODO: implement onCancelProjectResult
   }
-  
+
   @override
   void showAllProjectByUserId(List<FundingProject> projects) {
     // TODO: implement showAllProjectByUserId

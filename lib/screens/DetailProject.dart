@@ -12,6 +12,8 @@ import 'package:project_tpm/screens/MainMenu.dart';
 import 'package:project_tpm/screens/ProjectForm.dart';
 import 'package:project_tpm/services/route_service.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:timezone/data/latest.dart' as tz;
+import 'package:timezone/timezone.dart' as tz;
 
 class DetailFundingProject extends StatefulWidget {
   final int id;
@@ -22,6 +24,8 @@ class DetailFundingProject extends StatefulWidget {
   @override
   State<DetailFundingProject> createState() => _DetailFundingProjectState();
 }
+
+enum TimeZoneOption { wib, london, newYork }
 
 class _DetailFundingProjectState extends State<DetailFundingProject>
     implements ProjectView {
@@ -35,6 +39,9 @@ class _DetailFundingProjectState extends State<DetailFundingProject>
   bool _isDonating = false;
   final TextEditingController _amountController = TextEditingController();
   String selectedCurrency = 'IDR';
+
+  TimeZoneOption _selectedZone = TimeZoneOption.wib;
+
   Map<String, double> exchangeRates = {
     'IDR': 1.0,
     'USD': 0.000065, // contoh: 1 IDR = 0.000065 USD
@@ -50,6 +57,27 @@ class _DetailFundingProjectState extends State<DetailFundingProject>
     _presenter.getProjectById(widget.id);
     _initializeNotification();
     _requestNotificationPermission();
+    tz.initializeTimeZones();
+  }
+
+  String formatDateInZone(DateTime dateTime) {
+    tz.Location location;
+
+    switch (_selectedZone) {
+      case TimeZoneOption.london:
+        location = tz.getLocation('Europe/London');
+        break;
+      case TimeZoneOption.newYork:
+        location = tz.getLocation('America/New_York');
+        break;
+      case TimeZoneOption.wib:
+      default:
+        location = tz.getLocation('Asia/Jakarta');
+        break;
+    }
+
+    final tz.TZDateTime converted = tz.TZDateTime.from(dateTime, location);
+    return DateFormat('EEEE, dd MMM yyyy – HH:mm').format(converted);
   }
 
   Future<void> _requestNotificationPermission() async {
@@ -213,47 +241,55 @@ class _DetailFundingProjectState extends State<DetailFundingProject>
     }
 
     if (detailProject == null) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Text("Project Detail"),
-        backgroundColor: Colors.teal,
-      ),
-      body: Center(child: CircularProgressIndicator()),
-    );
-  }
+      return Scaffold(
+        appBar: AppBar(
+          title: Text("Project Detail"),
+          backgroundColor: Colors.teal,
+        ),
+        body: Center(child: CircularProgressIndicator()),
+      );
+    }
 
     final percentFunded =
         detailProject!.totalDonations / detailProject!.targetAmount;
 
     return Scaffold(
-      appBar:
-          AppBar(
-            title: Text("Project Detail"), 
-            backgroundColor: Colors.teal,
-            actions: detailProject!.userId == widget.user.id
+      appBar: AppBar(
+        title: Text("Project Detail"),
+        backgroundColor: Colors.teal,
+        actions: detailProject!.userId == widget.user.id
             ? [
                 IconButton(
-                  icon: const Icon(Icons.edit, color: Colors.white,),
+                  icon: const Icon(
+                    Icons.edit,
+                    color: Colors.white,
+                  ),
                   tooltip: 'Edit Project',
                   onPressed: () => {
                     Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                              builder: (context) => ProjectFormPage(userId: widget.user.id!, isEdit: true, project: detailProject,)
-                        )
-                    )
+                        context,
+                        MaterialPageRoute(
+                            builder: (context) => ProjectFormPage(
+                                  userId: widget.user.id!,
+                                  isEdit: true,
+                                  project: detailProject,
+                                )))
                   },
                 ),
                 IconButton(
-                  icon: const Icon(Icons.cancel, color: Colors.white,),
-                  tooltip: 'Batalkan Project',
-                  onPressed: () => {
-                    _presenter.cancelProject(userId: widget.user.id!, projectId: detailProject!.projectId)
-                  }
-                ),
+                    icon: const Icon(
+                      Icons.cancel,
+                      color: Colors.white,
+                    ),
+                    tooltip: 'Batalkan Project',
+                    onPressed: () => {
+                          _presenter.cancelProject(
+                              userId: widget.user.id!,
+                              projectId: detailProject!.projectId)
+                        }),
               ]
             : [],
-            ),
+      ),
       body: Column(
         children: [
           Image.network(
@@ -331,11 +367,39 @@ class _DetailFundingProjectState extends State<DetailFundingProject>
                                   SizedBox(height: 16),
                                   Text(detailProject!.description,
                                       textAlign: TextAlign.justify),
+                                  SizedBox(height: 16),
                                   Text(
-                                      "Start Date: ${dateFormat.format(detailProject!.startDate)}"),
+                                    "Tampilkan Waktu Dalam:",
+                                    style:
+                                        TextStyle(fontWeight: FontWeight.bold),
+                                  ),
+                                  SizedBox(height: 8),
+                                  DropdownButton<TimeZoneOption>(
+                                    value: _selectedZone,
+                                    items: TimeZoneOption.values.map((zone) {
+                                      return DropdownMenuItem(
+                                        value: zone,
+                                        child: Text(
+                                          zone == TimeZoneOption.wib
+                                              ? 'Waktu Indonesia (WIB)'
+                                              : zone == TimeZoneOption.london
+                                                  ? 'Waktu London'
+                                                  : 'Waktu New York',
+                                        ),
+                                      );
+                                    }).toList(),
+                                    onChanged: (zone) {
+                                      setState(() {
+                                        _selectedZone = zone!;
+                                      });
+                                    },
+                                  ),
+                                  SizedBox(height: 8),
+                                  Text(
+                                      "Start Date: ${formatDateInZone(detailProject!.startDate)}"),
                                   SizedBox(height: 4),
                                   Text(
-                                      "End Date: ${dateFormat.format(detailProject!.deadline)}"),
+                                      "End Date: ${formatDateInZone(detailProject!.deadline)}"),
                                   SizedBox(height: 8),
                                   Column(
                                     crossAxisAlignment:
@@ -530,25 +594,25 @@ class _DetailFundingProjectState extends State<DetailFundingProject>
   void showParticipatedProjects(List<FundingProject> projects) {}
   @override
   void showUserDonation(Map<String, dynamic> donationData) {}
-  
+
   @override
   void onCancelProjectResult(bool success) {
-    if(success==true){
+    if (success == true) {
       ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text("Berhasil Membatalkan Pendanaan!")));
       Navigator.pushAndRemoveUntil(
-      context,
-      MaterialPageRoute(
-        builder: (context) => MainMenu(),
-      ),
-      (route) => false,
-    );
-    }else{
+        context,
+        MaterialPageRoute(
+          builder: (context) => MainMenu(),
+        ),
+        (route) => false,
+      );
+    } else {
       ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text("Gagal Membatalkan Pendanaan!")));
     }
   }
-  
+
   @override
   void showAllProjectByUserId(List<FundingProject> projects) {
     // TODO: implement showAllProjectByUserId

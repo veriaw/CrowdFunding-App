@@ -35,6 +35,10 @@ class _UserProjectState extends State<UserProject> implements ProjectView {
       ),
       body: Column(
           children: [
+            Text(
+                "User Funding Projects",
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
             SizedBox(
               height: 696,
               child: ListView.builder(
